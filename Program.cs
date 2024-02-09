@@ -19,13 +19,23 @@ internal class Program
         try
         {
             connection.Open();
+            var updater = new Updater(connection, ".\\Query.sql");
+            if (updater.TryParse(out string message))
+            {
+                updater.ExecuteTransactions();
+            }
+            else
+            {
+                Console.WriteLine(message);
+            }
+            connection.Close();
         }
         catch (Exception ex) 
         {
             Console.WriteLine(ex.Message);
         }
 
-        Console.Write("\nPress any key to close...");
+        Console.Write(Environment.NewLine + "Press any key to close...");
         Console.ReadKey(false);
     }
 }
