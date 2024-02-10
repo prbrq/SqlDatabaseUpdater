@@ -7,6 +7,13 @@ internal class Program
 {
     static void Main(string[] args)
     {
+        var filePath = args.ElementAtOrDefault(0);
+        if (filePath == null)
+        {
+            Console.WriteLine("You must provide the path to the file");
+            return;
+        }
+
         var builer = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
@@ -19,7 +26,7 @@ internal class Program
         try
         {
             connection.Open();
-            var updater = new Updater(connection, ".\\Query.sql");
+            var updater = new Updater(connection, filePath);
             if (updater.TryParse(out string message))
             {
                 updater.ExecuteTransactions();
@@ -34,8 +41,5 @@ internal class Program
         {
             Console.WriteLine(ex.Message);
         }
-
-        Console.Write(Environment.NewLine + "Press any key to close...");
-        Console.ReadKey(false);
     }
 }
