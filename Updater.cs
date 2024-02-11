@@ -1,4 +1,6 @@
 ﻿using Npgsql;
+using System.Runtime.ConstrainedExecution;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -8,16 +10,24 @@ internal class Updater
 {
     public NpgsqlConnection Connection { get; }
     public string QueryPath { get; }
-
-    private readonly string extendedCommandAttribute = "-- Q ";
     public List<string> Transactions { get; set; }
+
+    private static readonly string extendedCommandAttribute = "-- Q ";
+    private static readonly char[] pathSeparators = ['\\', '/'];
 
     public Updater(NpgsqlConnection connection, string queryPath)
     {
         Connection = connection;
-        if (!File.Exists(queryPath)) throw new ArgumentException("File not exists");
-        QueryPath = queryPath;
+        var qp = GetPlatformPath(queryPath);
+        if (!File.Exists(qp)) throw new ArgumentException("File not exists");
+        QueryPath = qp;
         Transactions = new List<string>();
+    }
+
+    private static string GetPlatformPath(string rowPath)
+    {
+        var rowPathParts = rowPath.Split(pathSeparators, StringSplitOptions.None);
+        return string.Join(Path.DirectorySeparatorChar, rowPathParts);
     }
 
     public void ExecuteTransactions()
@@ -34,14 +44,13 @@ internal class Updater
         }
     }
 
-    public bool TryParse(out string message)
+    public void GetTransactions()
     {
         List<string> queryLines = GetTextFileLines(QueryPath);
 
         if (!IsValid(queryLines))
         {
-            message = "Query is not valid";
-            return false;
+            throw new Exception("Query is not valid");
         }
 
         var transactions = new List<Transaction>();
@@ -58,8 +67,7 @@ internal class Updater
             {
                 if (currentTransaction == null)
                 {
-                    message = "Attempt to work outside the transaction";
-                    return false;
+                    throw new Exception("Attempt to work outside the transaction");
                 }
                 if (line.Equals("END;", StringComparison.CurrentCultureIgnoreCase))
                 {
@@ -69,30 +77,25 @@ internal class Updater
                 {
                     if (line.StartsWith(extendedCommandAttribute))
                     {
-                        if (TryExtractCommand(line, ExtendedCommandEnum.Execute, out string filePath))
+                        var extendedCommand = ExtractExtendedCommand(line);
+                        var filePath = extendedCommand.Path;
+                        if (!File.Exists(filePath)) throw new Exception($"File {GetAbsolutePath(filePath)} was not found");
+                        if (extendedCommand.Type == ExtendedCommandTypeEnum.Execute)
                         {
-                            if (!File.Exists(filePath)) continue;
                             var execLines = GetTextFileLines(filePath);
                             foreach (var transactionLine in execLines)
                             {
                                 currentTransaction.Builder.AppendLine(transactionLine);
                             }
                         }
-                        else if (TryExtractCommand(line, ExtendedCommandEnum.Read, out string textPath))
+                        else if (extendedCommand.Type == ExtendedCommandTypeEnum.Read)
                         {
-                            if (!File.Exists(textPath)) continue;
-                            var replacedCommand = $"{ExtendedCommandEnum.Read}({textPath})";
-                            var fileTextLines = GetTextFileLines(textPath);
+                            var fileTextLines = GetTextFileLines(filePath);
                             var fileText = string.Join(Environment.NewLine, fileTextLines);
                             var transactionLine = line
-                                .Replace(replacedCommand, fileText)
+                                .Replace(extendedCommand.Value, fileText)
                                 .Replace(extendedCommandAttribute, string.Empty);
                             currentTransaction.Builder.AppendLine(transactionLine);
-                        }
-                        else
-                        {
-                            message = "Attempting to use an attribute without an extended command";
-                            return false;
                         }
                     }
                     else
@@ -108,9 +111,6 @@ internal class Updater
             var transactionQuery = transaction.Builder.ToString();
             if (transactionQuery != null) Transactions.Add(transactionQuery);
         }
-
-        message = "Success";
-        return true;
     }
 
     private static List<string> GetTextFileLines(string queryPath)
@@ -145,26 +145,44 @@ internal class Updater
         }
     }
 
-    private static class ExtendedCommandEnum
+    private static class ExtendedCommandTypeEnum
     {
         public const string Execute = "@EXEC";
         public const string Read = "@READ";
     }
 
-    private static bool TryExtractCommand(string line, string extendedCommand, out string result)
+    private static ExtendedCommand ExtractExtendedCommand(string line)
     {
-        var pattern = $@"{extendedCommand}\((.*?)\)";
-        Match match = Regex.Match(line, pattern);
-        if (match.Success)
+        var extendedCommandTypes = new string[]
         {
-            string extractedText = match.Groups[1].Value;
-            result = extractedText;
-            return true;
-        }
-        else
+            ExtendedCommandTypeEnum.Execute,
+            ExtendedCommandTypeEnum.Read,
+        };
+        foreach (var extendedCommandType in extendedCommandTypes)
         {
-            result = string.Empty;
-            return false;
+            var pattern = $@"{extendedCommandType}\((.*?)\)";
+            Match match = Regex.Match(line, pattern);
+            if (match.Success)
+            {
+                string extractedText = match.Groups[1].Value;
+                return new ExtendedCommand(GetPlatformPath(extractedText), match.Value, extendedCommandType);
+            }
         }
+        throw new Exception("The extended command could not be extracted");
+    }
+
+    private class ExtendedCommand(string path, string value, string type)
+    {
+        public string Path { get; set; } = path;
+        public string Value { get; set; } = value;
+        public string Type { get; set; } = type;
+    }
+
+    private static string GetAbsolutePath(string relativePath)
+    {
+        if (Path.IsPathRooted(relativePath)) return relativePath;
+
+        string absolutePath = Path.GetFullPath(relativePath);
+        return absolutePath;
     }
 }

@@ -28,14 +28,8 @@ internal class Program
         {
             connection.Open();
             var updater = new Updater(connection, filePath);
-            if (updater.TryParse(out string message))
-            {
-                updater.ExecuteTransactions();
-            }
-            else
-            {
-                Console.WriteLine(message);
-            }
+            updater.GetTransactions();
+            updater.ExecuteTransactions();
             connection.Close();
         }
         catch (Exception ex) 
