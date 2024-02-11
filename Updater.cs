@@ -3,19 +3,21 @@ using System.Text;
 using System.Text.RegularExpressions;
 
 namespace SqlDatabaseUpdater;
+
 internal class Updater
 {
     public NpgsqlConnection Connection { get; }
     public string QueryPath { get; }
 
     private readonly string extendedCommandAttribute = "-- Q ";
-    public List<string> Transactions { get; set; } = new List<string>();
+    public List<string> Transactions { get; set; }
 
     public Updater(NpgsqlConnection connection, string queryPath)
     {
         Connection = connection;
         if (!File.Exists(queryPath)) throw new ArgumentException("File not exists");
         QueryPath = queryPath;
+        Transactions = new List<string>();
     }
 
     public void ExecuteTransactions()

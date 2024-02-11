@@ -8,6 +8,7 @@ internal class Program
     static void Main(string[] args)
     {
         var filePath = args.ElementAtOrDefault(0);
+        
         if (filePath == null)
         {
             Console.WriteLine("You must provide the path to the file");
